@@ -31,12 +31,24 @@ var requestHandler = function(request, response) {
 
   // The outgoing status.
   var statusCode = (request.method === 'GET') ? 200 : 201;
-  console.log(request.data);
+
+  // if (request.url !== '/classes/messages') {
+  //   statusCode = 404;
+  // }
 
   if (statusCode === 201) {
-    result.results.push({
-      username: request._postData.username,
-      message: request._postData.message
+    var body = '';
+
+    request.on('data', function(datum) {
+      console.log('received');
+      body += datum.toString();
+    });
+    request.on('end', function() {
+      var data = JSON.parse(body);
+      result.results.push({
+        username: data.username,
+        message: data.message
+      });
     });
   }
 
