@@ -11,6 +11,26 @@ this file and include it in basic-server.js so that it actually works.
 *Hint* Check out the node module documentation at http://nodejs.org/api/modules.html.
 
 **************************************************************/
+var fs = require("fs");
+
+var defaultCorsHeaders = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
+  "access-control-allow-headers": "content-type, accept",
+  "access-control-max-age": 10 // Seconds.
+};
+
+var i = 0;
+
+fs.readFileSync('../message.txt', 'utf8' , function (err, text) {
+  var objs = text.split('\n');
+  for(var j = 0; j < objs.length; j++) {
+    result.results.unshift(JSON.parse(objs[j]));
+  }
+  i = j-1;
+});
+
+var output = fs.createWriteStream('../message.txt');
 
 var requestHandler = function(request, response) {
   // Request and Response come from node's http module.
@@ -30,20 +50,97 @@ var requestHandler = function(request, response) {
   console.log("Serving request type " + request.method + " for url " + request.url);
 
   // The outgoing status.
-  var statusCode = 200;
+  var headers = defaultCorsHeaders;
+  var resp = result;
+  headers['Content-Type'] = "text/plain";
+  var statusCode;
+  if (request.method === 'POST'  /*(request.url === '/classes/messages' || request.url === '/classes/room1')*/) {
+    var data = '';
+    request.on('data', function (json) {
+      data += json;
+    });
+
+    request.on('end', function() {
+      var msg = JSON.parse(data)
+      msg['-createdAt'] = (new Date()).now
+      msg['objectId'] = i++;
+      result.results.unshift(msg);
+
+      output.write(JSON.stringify(msg) + '\n');
+      // if(result.results.length > 100) {
+      //   result.results.shift();
+      // }
+    });
+    statusCode = 201
+  } else if(request.method === 'GET' && (request.url === '/classes/messages' || request.url === '/classes/room1' || request.url.charAt(1) === '?')) {
+    statusCode = 200;
+  } else if(request.method === 'GET' && request.url === '/') {
+    headers['Content-Type'] = 'text/html';
+    statusCode = 200;
+    response.writeHead(statusCode, headers);
+
+    var file_stream = fs.createReadStream('./refactor.html');
+
+    file_stream.on("error", function(exception) {
+      console.error("Error reading file: ", exception);
+    });
+     
+    file_stream.on("data", function(data) {
+      response.write(data.toString());
+    });
+     
+    file_stream.on("close", function() {
+      response.end();
+    });
+
+  } else if(request.url.slice(0, 7) === '/client'){
+
+    statusCode = 200;
+    var type = '';
+    var extension = request.url.split('.')[1]
+    
+    if(extension === 'js') {
+      type = 'text/javascript'
+    } else if (extension === 'css') {
+      type = 'text/css';
+    } else {
+      type = 'image/gif';
+    }
+
+    headers['Content-Type'] = type;
+    response.writeHead(statusCode, headers);
+
+    var file_stream = fs.createReadStream('.'+request.url);
+
+    file_stream.on("error", function(exception) {
+      console.error("Error reading file: ", exception);
+    });
+     
+    file_stream.on("data", function(data) {
+      response.write(data.toString());
+    });
+     
+    file_stream.on("close", function() {
+      response.end();
+    });
+
+  } else {
+    statusCode = 404;
+  }
+
 
   // See the note below about CORS headers.
-  var headers = defaultCorsHeaders;
+  // var headers = defaultCorsHeaders;
 
   // Tell the client we are sending them plain text.
   //
   // You will need to change this if you are sending something
   // other than plain text, like JSON or HTML.
-  headers['Content-Type'] = "text/plain";
 
   // .writeHead() writes to the request line and headers of the response,
   // which includes the status and all headers.
-  response.writeHead(statusCode, headers);
+  if(request.url !== '/' && request.url.slice(0, 7) !== '/client') {
+    response.writeHead(statusCode, headers);
 
   // Make sure to always call response.end() - Node may not send
   // anything back to the client until you do. The string you pass to
@@ -52,8 +149,22 @@ var requestHandler = function(request, response) {
   //
   // Calling .end "flushes" the response's internal buffer, forcing
   // node to actually send all the data over to the client.
-  response.end("Hello, World!");
+
+    response.end(JSON.stringify(result));
+    // console.log('saibfvikelwyorpibipvqeljflbvwqeilnvw')
+    // if(request.method === 'POST') {
+    //   fs.appendFile('./message.json', JSON.stringify(result.results[0]), function (err) {
+    //     if (err) throw err;
+    //     console.log('The "data to append" was appended to file!');
+    //   });
+    // } 
+  }
 };
+
+var result = {
+  results: []
+};
+
 
 // These headers will allow Cross-Origin Resource Sharing (CORS).
 // This code allows this server to talk to websites that
@@ -71,3 +182,5 @@ var defaultCorsHeaders = {
   "access-control-max-age": 10 // Seconds.
 };
 
+// module.exports = requestHandler;
+exports.requestHandler = requestHandler;
