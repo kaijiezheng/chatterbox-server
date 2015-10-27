@@ -13,24 +13,41 @@ this file and include it in basic-server.js so that it actually works.
 **************************************************************/
 var fs = require("fs");
 
-var defaultCorsHeaders = {
-  "access-control-allow-origin": "*",
-  "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "access-control-allow-headers": "content-type, accept",
-  "access-control-max-age": 10 // Seconds.
-};
-
 var i = 0;
+var output;
 
-fs.readFileSync('../message.txt', 'utf8' , function (err, text) {
-  var objs = text.split('\n');
-  for(var j = 0; j < objs.length; j++) {
-    result.results.unshift(JSON.parse(objs[j]));
+fs.exists('../message.txt', function(exists) {
+  if(exists) {
+    var file_stream = fs.createReadStream('../message.txt');
+    var text = '';
+
+    file_stream.on("error", function(exception) {
+      console.error("Error reading file: ", exception);
+    });
+     
+    file_stream.on("data", function(data) {
+      text = data.toString();
+    });
+
+    file_stream.on("close", function() {
+      if(text) {
+        var objs = text.split('\n');
+        for(var j = 0; j < objs.length; j++) {
+          if(objs[j] !== '') {
+            result.results.unshift(JSON.parse(objs[j]));
+          }
+        }
+        i = j-1;
+        output = fs.createWriteStream('../message.txt');
+        output.write(text);
+      } else {
+        output = fs.createWriteStream('../message.txt');
+      }
+    });
+  } else {
+      output = fs.createWriteStream('../message.txt');
   }
-  i = j-1;
 });
-
-var output = fs.createWriteStream('../message.txt');
 
 var requestHandler = function(request, response) {
   // Request and Response come from node's http module.
@@ -52,10 +69,13 @@ var requestHandler = function(request, response) {
   // The outgoing status.
   var headers = defaultCorsHeaders;
   var resp = result;
-  headers['Content-Type'] = "text/plain";
   var statusCode;
+
   if (request.method === 'POST'  /*(request.url === '/classes/messages' || request.url === '/classes/room1')*/) {
+    console.log('POSTPOSTPOSTPOST');
+    headers['Content-Type'] = "text/plain";
     var data = '';
+    statusCode = 201
     request.on('data', function (json) {
       data += json;
     });
@@ -70,64 +90,57 @@ var requestHandler = function(request, response) {
       // if(result.results.length > 100) {
       //   result.results.shift();
       // }
+      response.writeHead(statusCode, headers);
+      response.end(JSON.stringify(msg)/*JSON.stringify(result)*/);
     });
-    statusCode = 201
-  } else if(request.method === 'GET' && (request.url === '/classes/messages' || request.url === '/classes/room1' || request.url.charAt(1) === '?')) {
+
+  } else if (request.method === 'GET') {
+    console.log('GETGETEGETGETGET');
     statusCode = 200;
-  } else if(request.method === 'GET' && request.url === '/') {
-    headers['Content-Type'] = 'text/html';
-    statusCode = 200;
-    response.writeHead(statusCode, headers);
 
-    var file_stream = fs.createReadStream('./refactor.html');
+    if (request.url === '/' || request.url.slice(0, 7) === '/client') {
+      var type = '';
+      var extension = request.url.split('.')[1]
+      var path = (request.url === '/') ? '/refactor.html' : request.url;
 
-    file_stream.on("error", function(exception) {
-      console.error("Error reading file: ", exception);
-    });
-     
-    file_stream.on("data", function(data) {
-      response.write(data.toString());
-    });
-     
-    file_stream.on("close", function() {
-      response.end();
-    });
+      if(extension === 'js') {
+        type = 'text/javascript'
+      } else if (extension === 'css') {
+        type = 'text/css';
+      } else if (extension === 'gif') {
+        type = 'image/gif';
+      } else {
+        type = 'text/html';
+      }
 
-  } else if(request.url.slice(0, 7) === '/client'){
+      headers['Content-Type'] = type;
+      response.writeHead(statusCode, headers);
 
-    statusCode = 200;
-    var type = '';
-    var extension = request.url.split('.')[1]
-    
-    if(extension === 'js') {
-      type = 'text/javascript'
-    } else if (extension === 'css') {
-      type = 'text/css';
+      var file_stream = fs.createReadStream('.' + path);
+
+      file_stream.on("error", function(exception) {
+        console.error("Error reading file: ", exception);
+      });
+
+      file_stream.on("data", function(data) {
+        response.write(data.toString());
+      });
+
+      file_stream.on("close", function() {
+        response.end();
+      });
+
+    } else if (request.url === '/classes/messages' || request.url === '/classes/room1' || request.url.charAt(1) === '?') {
+      console.log(result)
+      response.writeHead(statusCode, headers);  
+      response.end(JSON.stringify(result));
     } else {
-      type = 'image/gif';
+      statusCode = 404;
     }
-
-    headers['Content-Type'] = type;
-    response.writeHead(statusCode, headers);
-
-    var file_stream = fs.createReadStream('.'+request.url);
-
-    file_stream.on("error", function(exception) {
-      console.error("Error reading file: ", exception);
-    });
-     
-    file_stream.on("data", function(data) {
-      response.write(data.toString());
-    });
-     
-    file_stream.on("close", function() {
-      response.end();
-    });
-
   } else {
+    console.log('40404040404');
     statusCode = 404;
   }
-
 
   // See the note below about CORS headers.
   // var headers = defaultCorsHeaders;
@@ -139,7 +152,7 @@ var requestHandler = function(request, response) {
 
   // .writeHead() writes to the request line and headers of the response,
   // which includes the status and all headers.
-  if(request.url !== '/' && request.url.slice(0, 7) !== '/client') {
+  if(statusCode === 404) {
     response.writeHead(statusCode, headers);
 
   // Make sure to always call response.end() - Node may not send
@@ -151,13 +164,6 @@ var requestHandler = function(request, response) {
   // node to actually send all the data over to the client.
 
     response.end(JSON.stringify(result));
-    // console.log('saibfvikelwyorpibipvqeljflbvwqeilnvw')
-    // if(request.method === 'POST') {
-    //   fs.appendFile('./message.json', JSON.stringify(result.results[0]), function (err) {
-    //     if (err) throw err;
-    //     console.log('The "data to append" was appended to file!');
-    //   });
-    // } 
   }
 };
 
